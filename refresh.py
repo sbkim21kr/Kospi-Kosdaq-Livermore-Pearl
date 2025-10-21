@@ -1,109 +1,76 @@
 import FinanceDataReader as fdr
 import pandas as pd
-import numpy as np
-import time
-from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import os
 from datetime import datetime
-import shutil
 
-# --- Livermore Metrics ---
-def compute_rsi(close, period=14):
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
+# --- Load KRX listing for fundamentals ---
+krx = fdr.StockListing('KRX')
+krx = krx[['Code', 'Name', 'MarketCap', 'EPS', 'P/E', 'Market']].copy()
+krx['MarketCap'] = pd.to_numeric(krx['MarketCap'], errors='coerce')
+krx['EPS'] = pd.to_numeric(krx['EPS'], errors='coerce')
+krx['P/E'] = pd.to_numeric(krx['P/E'], errors='coerce')
 
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
+# --- Calculate Pearl Score ---
+krx['Pearl Score'] = krx.apply(
+    lambda row: row['EPS'] / row['P/E'] if pd.notna(row['EPS']) and pd.notna(row['P/E']) and row['P/E'] > 0 else None,
+    axis=1
+)
 
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-def livermore_metrics(df):
-    df['Volume Spike'] = df['Volume'] / df['Volume'].rolling(20).mean()
-    df['Momentum'] = df['Close'] - df['Close'].shift(5)
-    df['RSI'] = compute_rsi(df['Close'])
-    return df
-
-# --- Load All KOSPI Stocks ---
-kospi = fdr.StockListing('KRX')
-kospi = kospi[kospi['Market'] == 'KOSPI']
-
-# --- Handle missing columns gracefully ---
-columns = ['Code', 'Name', 'Marcap']
-if 'Sector' in kospi.columns:
-    columns.append('Sector')
-kospi = kospi[columns].dropna()
-
-# --- Prepare Output ---
-results = []
-failed = []
-
-# --- Worker Function ---
-def process_stock(row):
-    code = row['Code']
-    name = row['Name']
-    sector = row.get('Sector', 'Unknown')
-    marcap = row['Marcap']
+# --- Load price data for Volume Spike and Trend Arrow ---
+def get_price_data(code):
     try:
-        df = fdr.DataReader(code, '2023-01-01')
-        if len(df) < 50:
-            return None
-        df = livermore_metrics(df)
+        df = fdr.DataReader(code)
+        df = df.sort_index()
+        df['20-day Avg Close'] = df['Close'].rolling(window=20).mean()
+        df['20-day Avg Volume'] = df['Volume'].rolling(window=20).mean()
         latest = df.iloc[-1]
         return {
-            'Code': code,
-            'Name': name,
-            'Sector': sector,
-            'MarketCap': marcap,
             'Close': latest['Close'],
             'Volume': latest['Volume'],
-            'Volume Spike': round(latest['Volume Spike'], 2),
-            'Momentum': round(latest['Momentum'], 2),
-            'RSI': round(latest['RSI'], 2),
+            '20-day Avg Close': latest['20-day Avg Close'],
+            '20-day Avg Volume': latest['20-day Avg Volume']
         }
-    except Exception as e:
-        return {'failed': code, 'error': str(e)}
+    except:
+        return None
 
-# --- Parallel Execution with Progress Bar ---
-with ThreadPoolExecutor(max_workers=10) as executor:
-    futures = {executor.submit(process_stock, row): row for _, row in kospi.iterrows()}
-    for future in tqdm(as_completed(futures), total=len(futures), desc="Processing KOSPI stocks"):
-        result = future.result()
-        if result is None:
-            continue
-        if 'failed' in result:
-            failed.append(result)
-        else:
-            results.append(result)
+# --- Merge price data into krx ---
+records = []
+for idx, row in krx.iterrows():
+    price = get_price_data(row['Code'])
+    if price:
+        record = {
+            'Code': row['Code'],
+            'Name': row['Name'],
+            'MarketCap': row['MarketCap'],
+            'EPS': row['EPS'],
+            'P/E': row['P/E'],
+            'Pearl Score': row['Pearl Score'],
+            'Market': row['Market'],
+            'Close': price['Close'],
+            'Volume': price['Volume'],
+            '20-day Avg Close': price['20-day Avg Close'],
+            '20-day Avg Volume': price['20-day Avg Volume']
+        }
+        records.append(record)
 
-# --- Save Main CSV ---
-df_all = pd.DataFrame(results)
-df_all.to_csv('latest_kospi.csv', index=False)
+df = pd.DataFrame(records)
 
-# --- Archive to data/ folder with timestamp ---
-today = datetime.today().strftime('%Y%m%d')
-os.makedirs('data', exist_ok=True)
-shutil.copy('latest_kospi.csv', f'data/kospi_{today}.csv')
+# --- Calculate Volume Spike ---
+df['Volume Spike'] = df.apply(
+    lambda row: row['Volume'] / row['20-day Avg Volume'] if pd.notna(row['Volume']) and pd.notna(row['20-day Avg Volume']) and row['20-day Avg Volume'] > 0 else None,
+    axis=1
+)
 
-# --- Save Failed Tickers ---
-if failed:
-    pd.DataFrame(failed).to_csv('failed_tickers.csv', index=False)
-    print(f"⚠️ {len(failed)} tickers failed. See failed_tickers.csv for details.")
+# --- Calculate Trend Arrow ---
+def get_arrow(row):
+    try:
+        change = (row['Close'] - row['20-day Avg Close']) / row['20-day Avg Close']
+        return "⬆️" if change > 0.03 else "⬇️" if change < -0.03 else "➡️"
+    except:
+        return ""
 
-# --- Split by Sector ---
-os.makedirs('sectors', exist_ok=True)
-if 'Sector' in df_all.columns:
-    for sector, group in df_all.groupby('Sector'):
-        filename = f"sectors/{sector.replace('/', '_').replace(' ', '_')}.csv"
-        group.to_csv(filename, index=False)
+df['Trend Arrow'] = df.apply(get_arrow, axis=1)
 
-# --- Split by Market Cap Tier ---
-os.makedirs('tiers', exist_ok=True)
-df_all['Tier'] = pd.qcut(df_all['MarketCap'], q=3, labels=['Small Cap', 'Mid Cap', 'Large Cap'])
-for tier, group in df_all.groupby('Tier'):
-    group.to_csv(f"tiers/{tier.replace(' ', '_')}.csv", index=False)
-
-print("✅ Screener complete. Data saved to latest_kospi.csv, data/, sectors/, tiers/, and failed_tickers.csv (if any).")
+# --- Save full dataset with timestamp ---
+timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+df['Retrieved At'] = timestamp
+df.to_csv('latest_kospi_kosdaq.csv', index=False)
