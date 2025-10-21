@@ -2,7 +2,7 @@ name: Refresh Data
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Runs every day at 17:00 KST (08:00 UTC)
+    - cron: '0 8 * * *'  # Runs daily at 17:00 KST (08:00 UTC)
   workflow_dispatch:     # Allows manual trigger from GitHub UI
 
 jobs:
@@ -20,7 +20,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install FinanceDataReader pandas
+        pip install pandas
+        pip install git+https://github.com/FinanceData/FinanceDataReader.git
 
     - name: Run refresh.py
       run: python refresh.py
