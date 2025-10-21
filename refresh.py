@@ -4,7 +4,8 @@ from datetime import datetime
 
 # --- Load full KRX stock list ---
 krx_url = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
-df_krx = pd.read_html(krx_url, encoding='utf-8')[0]
+df_krx = pd.read_html(krx_url, encoding='cp949')[0]
+
 
 # --- Clean and filter ---
 df_krx = df_krx.rename(columns={"종목코드": "Code", "회사명": "Name", "시장구분": "Market"})
