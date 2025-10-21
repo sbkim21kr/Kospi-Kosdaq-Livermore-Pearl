@@ -7,8 +7,7 @@ wheels/
 *.egg-info
 
 # Virtual environments
-
-latest_kospi_kosdaq.csv
-__pycache__/
-*.pyc
 .venv/
+
+# Generated data
+latest_kospi_kosdaq.csv
