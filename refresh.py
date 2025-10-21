@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 import random
 from datetime import datetime
+from io import StringIO
 
 # --- Load full KRX stock list ---
 krx_url = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
@@ -9,12 +10,16 @@ response = requests.get(krx_url)
 response.encoding = 'cp949'  # Correct encoding for Korean characters
 html = response.text
 
-df_krx = pd.read_html(html)[0]
+# Use StringIO to avoid FutureWarning
+df_krx = pd.read_html(StringIO(html))[0]
 print(f"✅ Raw table rows: {len(df_krx)}")
 
 # --- Clean and filter ---
 df_krx = df_krx.rename(columns={"종목코드": "Code", "회사명": "Name", "시장구분": "Market"})
 df_krx["Code"] = df_krx["Code"].astype(str).str.zfill(6)
+df_krx["Market"] = df_krx["Market"].str.strip().str.upper()
+print("🔍 Unique Market values:", df_krx["Market"].unique())
+
 df_krx = df_krx[df_krx["Market"].isin(["KOSPI", "KOSDAQ"])].reset_index(drop=True)
 print(f"✅ Filtered KOSPI/KOSDAQ rows: {len(df_krx)}")
 
