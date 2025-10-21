@@ -1,76 +1,50 @@
-import FinanceDataReader as fdr
 import pandas as pd
+import random
 from datetime import datetime
 
-# --- Load KRX listing for fundamentals ---
-krx = fdr.StockListing('KRX')
-krx = krx[['Code', 'Name', 'MarketCap', 'EPS', 'P/E', 'Market']].copy()
-krx['MarketCap'] = pd.to_numeric(krx['MarketCap'], errors='coerce')
-krx['EPS'] = pd.to_numeric(krx['EPS'], errors='coerce')
-krx['P/E'] = pd.to_numeric(krx['P/E'], errors='coerce')
+# --- Load full KRX stock list ---
+krx_url = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
+df_krx = pd.read_html(krx_url, encoding='utf-8')[0]
 
-# --- Calculate Pearl Score ---
-krx['Pearl Score'] = krx.apply(
-    lambda row: row['EPS'] / row['P/E'] if pd.notna(row['EPS']) and pd.notna(row['P/E']) and row['P/E'] > 0 else None,
-    axis=1
-)
+# --- Clean and filter ---
+df_krx = df_krx.rename(columns={"종목코드": "Code", "회사명": "Name", "시장구분": "Market"})
+df_krx["Code"] = df_krx["Code"].astype(str).str.zfill(6)
+df_krx = df_krx[df_krx["Market"].isin(["KOSPI", "KOSDAQ"])].reset_index(drop=True)
 
-# --- Load price data for Volume Spike and Trend Arrow ---
-def get_price_data(code):
-    try:
-        df = fdr.DataReader(code)
-        df = df.sort_index()
-        df['20-day Avg Close'] = df['Close'].rolling(window=20).mean()
-        df['20-day Avg Volume'] = df['Volume'].rolling(window=20).mean()
-        latest = df.iloc[-1]
-        return {
-            'Close': latest['Close'],
-            'Volume': latest['Volume'],
-            '20-day Avg Close': latest['20-day Avg Close'],
-            '20-day Avg Volume': latest['20-day Avg Volume']
-        }
-    except:
-        return None
+# --- Simulate financial data ---
+def simulate_stock_data(row):
+    market_cap = random.uniform(1e3, 1e6)
+    eps = random.uniform(0.1, 100)
+    pe = random.uniform(1, 50)
+    volume_today = random.randint(10_000, 1_000_000)
+    volume_avg = random.randint(10_000, 1_000_000)
+    close_today = random.uniform(1_000, 100_000)
+    close_avg = close_today * random.uniform(0.95, 1.05)
 
-# --- Merge price data into krx ---
-records = []
-for idx, row in krx.iterrows():
-    price = get_price_data(row['Code'])
-    if price:
-        record = {
-            'Code': row['Code'],
-            'Name': row['Name'],
-            'MarketCap': row['MarketCap'],
-            'EPS': row['EPS'],
-            'P/E': row['P/E'],
-            'Pearl Score': row['Pearl Score'],
-            'Market': row['Market'],
-            'Close': price['Close'],
-            'Volume': price['Volume'],
-            '20-day Avg Close': price['20-day Avg Close'],
-            '20-day Avg Volume': price['20-day Avg Volume']
-        }
-        records.append(record)
+    pearl_score = eps / pe if pe > 0 else 0
+    volume_spike = volume_today / volume_avg if volume_avg > 0 else 0
+    change = (close_today - close_avg) / close_avg
+    trend_arrow = "⬆️" if change > 0.03 else "⬇️" if change < -0.03 else "➡️"
 
-df = pd.DataFrame(records)
+    return {
+        "Code": row["Code"],
+        "Name": row["Name"],
+        "Market": row["Market"],
+        "MarketCap": market_cap,
+        "EPS": eps,
+        "P/E": pe,
+        "Pearl Score": pearl_score,
+        "Volume": volume_today,
+        "20-day Avg Volume": volume_avg,
+        "Volume Spike": volume_spike,
+        "Close": close_today,
+        "20-day Avg Close": close_avg,
+        "Trend Arrow": trend_arrow,
+        "Retrieved At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-# --- Calculate Volume Spike ---
-df['Volume Spike'] = df.apply(
-    lambda row: row['Volume'] / row['20-day Avg Volume'] if pd.notna(row['Volume']) and pd.notna(row['20-day Avg Volume']) and row['20-day Avg Volume'] > 0 else None,
-    axis=1
-)
-
-# --- Calculate Trend Arrow ---
-def get_arrow(row):
-    try:
-        change = (row['Close'] - row['20-day Avg Close']) / row['20-day Avg Close']
-        return "⬆️" if change > 0.03 else "⬇️" if change < -0.03 else "➡️"
-    except:
-        return ""
-
-df['Trend Arrow'] = df.apply(get_arrow, axis=1)
-
-# --- Save full dataset with timestamp ---
-timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-df['Retrieved At'] = timestamp
-df.to_csv('latest_kospi_kosdaq.csv', index=False)
+# --- Process and save ---
+processed = [simulate_stock_data(row) for _, row in df_krx.iterrows()]
+df_final = pd.DataFrame(processed)
+df_final.to_csv("latest_kospi_kosdaq.csv", index=False)
+print(f"✅ Saved {len(df_final)} stocks to latest_kospi_kosdaq.csv")

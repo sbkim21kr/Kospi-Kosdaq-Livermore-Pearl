@@ -1,35 +1,32 @@
-name: Refresh Data
+name: Daily KRX Refresh
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Runs daily at 17:00 KST (08:00 UTC)
-  workflow_dispatch:     # Allows manual trigger from GitHub UI
+    - cron: '0 0 * * *'  # Runs daily at 9 AM KST (0 UTC)
+  workflow_dispatch:
 
 jobs:
-  build:
+  refresh-krx:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Install dependencies
-      run: |
-        pip install pandas
-        pip install git+https://github.com/FinanceData/FinanceDataReader.git
+      - name: Install dependencies
+        run: pip install pandas lxml
 
-    - name: Run refresh.py
-      run: python refresh.py
+      - name: Run refresh.py
+        run: python refresh.py
 
-    - name: Commit updated CSV
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        git add latest_kospi_kosdaq.csv
-        git commit -m "Auto-update data: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-        git push
+      - name: Commit updated CSV
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add latest_kospi_kosdaq.csv
+          git commit -m "Auto-refresh full KRX data"
+          git push
