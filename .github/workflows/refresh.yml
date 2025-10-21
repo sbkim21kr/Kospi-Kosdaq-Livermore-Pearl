@@ -1,19 +1,23 @@
-name: Daily KRX Refresh
+name: Auto-refresh KRX data
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Runs daily at 9 AM KST (0 UTC)
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Runs daily at midnight KST
+
+permissions:
+  contents: write  # Allows pushing changes using GITHUB_TOKEN
 
 jobs:
-  refresh-krx:
+  refresh:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -23,10 +27,12 @@ jobs:
       - name: Run refresh.py
         run: python refresh.py
 
-      - name: Commit updated CSV
+      - name: Commit and push updated CSV
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add latest_kospi_kosdaq.csv
           git commit -m "Auto-refresh full KRX data"
           git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
