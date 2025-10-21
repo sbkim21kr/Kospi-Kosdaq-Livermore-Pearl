@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv/
 
-# Generated data
-latest_kospi_kosdaq.csv
+
+
