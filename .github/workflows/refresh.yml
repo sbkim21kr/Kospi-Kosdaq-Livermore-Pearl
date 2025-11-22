@@ -1,9 +1,9 @@
 name: Auto-refresh KRX data
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'  # Runs daily at midnight KST
+# on:
+#   workflow_dispatch:
+#   schedule:
+#     - cron: '0 0 * * *'  # Runs daily at midnight KST
 
 permissions:
   contents: write  # Allows pushing changes using GITHUB_TOKEN
